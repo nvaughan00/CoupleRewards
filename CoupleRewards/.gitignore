@@ -1,0 +1,8 @@
+# Build output and Visual Studio's personal files: never commit these
+bin/
+obj/
+.vs/
+*.user
+*.apk
+*.ipa
+Payload/

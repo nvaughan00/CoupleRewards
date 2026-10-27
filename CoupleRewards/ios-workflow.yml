@@ -1,0 +1,54 @@
+# Builds an UNSIGNED iPhone app (.ipa) on GitHub's Macs, ready to sideload with Sideloadly or AltStore
+# (they sign it with a free Apple ID). Runs on every push to main, or by hand from the Actions tab.
+# Download the result from the run's page, under "Artifacts".
+name: iOS build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install the .NET MAUI iOS workload
+        run: dotnet workload install maui-ios
+
+      - name: Build the app (no code signing)
+        # TargetFrameworks is overridden so the Android half of the project isn't needed here.
+        run: >
+          dotnet build CoupleRewards.csproj -c Release
+          -p:TargetFrameworks=net10.0-ios
+          -f net10.0-ios
+          -r ios-arm64
+          -p:EnableCodeSigning=false
+          -p:MtouchLink=SdkOnly
+
+      - name: Package as .ipa
+        run: |
+          APP=$(find bin/Release/net10.0-ios/ios-arm64 -maxdepth 2 -name "*.app" -type d | head -n 1)
+          if [ -z "$APP" ]; then echo "No .app was produced"; exit 1; fi
+          echo "Packaging $APP"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry CoupleRewards.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CoupleRewards-ipa
+          path: CoupleRewards.ipa
+          retention-days: 30
