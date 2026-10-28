@@ -11,6 +11,10 @@ public class SettingsPage : ContentPage
 
 	readonly Label totalsTitle = Heading("Points");
 	readonly Label totals = new() { FontSize = 16 };
+	readonly Button clearBtn = Theme.NewButton();
+	readonly Button resetDayBtn = Theme.NewButton();
+	readonly Entry manualPts = new() { Placeholder = "Points (use - to take away)", Keyboard = Keyboard.Telephone, FontSize = 17 };
+	readonly Button addPtsBtn = Theme.NewButton();
 	readonly Border totalsCard;
 
 	readonly Label syncTitle = Heading("Sync with your partner’s phone");
@@ -46,7 +50,23 @@ public class SettingsPage : ContentPage
 			StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 14 },
 		};
 
-		totalsCard = Theme.Panel(totals);
+		clearBtn.Clicked += (_, _) => ClearPoints();
+		resetDayBtn.Clicked += (_, _) => ResetDay();
+		addPtsBtn.Text = "Add";
+		addPtsBtn.Clicked += (_, _) => AddPoints();
+		manualPts.Completed += (_, _) => AddPoints();
+		var manualRow = new Grid
+		{
+			ColumnSpacing = 8,
+			ColumnDefinitions = { new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto) },
+		};
+		manualRow.Add(manualPts, 0, 0);
+		manualRow.Add(addPtsBtn, 1, 0);
+		totalsCard = Theme.Panel(new VerticalStackLayout
+		{
+			Spacing = 10,
+			Children = { totals, manualRow, resetDayBtn, clearBtn },
+		});
 
 		peer.Text = App.Store.Peer;
 		saveBtn.Text = "Save and sync";
@@ -108,6 +128,61 @@ public class SettingsPage : ContentPage
 		myAddr.Text = string.IsNullOrEmpty(ip) ? "Not on Wi-Fi" : ip;
 	}
 
+	async void ClearPoints()
+	{
+		var s = App.Store;
+		var p = s.Person;
+		var who = Defs.Names[p];
+		var pts = s.Points(p);
+		if (pts == 0) return;
+		var ok = await DisplayAlertAsync($"Clear {who}’s points?",
+			$"This sets {who}’s {pts:N0} points to 0 on both phones. It can’t be undone.", "Clear points", "Cancel");
+		if (!ok) return;
+		s.Clear(p);
+		Render();
+	}
+
+	async void ResetDay()
+	{
+		var s = App.Store;
+		var p = s.Person;
+		var who = Defs.Names[p];
+		if (!s.AnyDoneToday(p)) return;
+		var ok = await DisplayAlertAsync($"Reset {who}’s day?",
+			$"All of {who}’s tasks become available again for today, on both phones. Points already earned are kept.",
+			"Reset day", "Cancel");
+		if (!ok) return;
+		s.ResetDay(p);
+		Render();
+	}
+
+	async void AddPoints()
+	{
+		var s = App.Store;
+		var p = s.Person;
+		var who = Defs.Names[p];
+		var text = (manualPts.Text ?? "").Replace(",", "").Replace(" ", "").Replace("+", "");
+		if (!int.TryParse(text, out var amount) || amount == 0)
+		{
+			await DisplayAlertAsync("Enter a number", "Type how many points to add, like 250. Use a minus sign to take points away, like -100.", "OK");
+			return;
+		}
+		var pts = s.Points(p);
+		if (amount < 0 && pts + amount < 0)
+		{
+			await DisplayAlertAsync("Not enough points", $"{who} only has {pts:N0} points.", "OK");
+			return;
+		}
+		var ok = await DisplayAlertAsync(
+			amount > 0 ? $"Add {amount:N0} points to {who}?" : $"Take {-amount:N0} points from {who}?",
+			$"{who} will have {pts + amount:N0} points.", amount > 0 ? "Add" : "Take away", "Cancel");
+		if (!ok) return;
+		manualPts.Unfocus();
+		s.Bonus(p, amount);
+		manualPts.Text = "";
+		Render();
+	}
+
 	static Label Heading(string text) => new()
 	{
 		Text = text,
@@ -128,6 +203,20 @@ public class SettingsPage : ContentPage
 
 		totals.Text = string.Join("\n", Defs.Names.Select((n, i) => $"{n}: {s.Points(i):N0} pts"));
 		totals.TextColor = Theme.Ink;
+		var canClear = s.Points(s.Person) != 0;
+		clearBtn.Text = $"Clear {Defs.Names[s.Person]}’s points";
+		Theme.StyleButton(clearBtn, canClear, filled: false);
+		if (canClear) clearBtn.TextColor = Color.FromArgb("#D6453D"); // red: destructive
+		clearBtn.BorderColor = Theme.Line;
+		clearBtn.BorderWidth = 1;
+		resetDayBtn.Text = $"Reset {Defs.Names[s.Person]}’s day";
+		Theme.StyleButton(resetDayBtn, s.AnyDoneToday(s.Person), filled: false);
+		resetDayBtn.BorderColor = Theme.Line;
+		resetDayBtn.BorderWidth = 1;
+		manualPts.TextColor = Theme.Ink;
+		manualPts.PlaceholderColor = Theme.Muted;
+		manualPts.BackgroundColor = Theme.Bg;
+		Theme.StyleButton(addPtsBtn, true);
 		Theme.StylePanel(totalsCard);
 
 		myAddr.TextColor = Theme.Accent;

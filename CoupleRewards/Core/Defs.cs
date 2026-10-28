@@ -83,7 +83,7 @@ public static class Defs
             R("getaway",   "🏨", "Weekend getaway",       10000),
             R("dream",     "🎆", "Dream date night",      15000),
         },
-        new[]   // Whitney
+        new[]   // WhitneyOh could 
         {
             R("coffee",   "☕", "Get a coffee out",      1500),
             R("dinner",   "🍲", "Get food out",            5000),

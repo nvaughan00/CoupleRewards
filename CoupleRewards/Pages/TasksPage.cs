@@ -67,7 +67,9 @@ public class TasksPage : ContentPage
 			}
 		}
 		header.Update();
-		foreach (var row in rows) row.Update(s.Done(s.Person, row.Def.Key));
+		// Default-done tasks always show finished (a day reset doesn't re-open them).
+		foreach (var row in rows)
+			row.Update(row.Def.AutoDone ? row.Def.Steps.Length : s.Done(s.Person, row.Def.Key));
 	}
 
 	void Complete(Row row)

@@ -6,8 +6,9 @@ namespace CoupleRewards.Core;
 
 /// <summary>
 /// One permanent ledger entry. (D, N) = device id + that device's running number, which makes every entry unique.
-/// P = person (0 Nick, 1 Whitney). K = "t" task step, "r" reward redeemed, "b" bonus, "c" points cleared. I = task/reward key.
-/// S = chain step index. V = points (+earned, -spent).
+/// P = person (0 Nick, 1 Whitney). K = "t" task step, "r" reward redeemed, "b" bonus, "c" points cleared,
+/// "d" day reset. I = task/reward key. S = chain step index (for "d": the new round number). V = points (+earned, -spent).
+/// Day = the date; a task step done after a day reset gets "yyyy-MM-dd~round" so it counts as a fresh run of that task.
 /// </summary>
 public record Ev(string D, int N, int P, string K, string I, int S, string Day, int V, long T);
 
@@ -99,7 +100,45 @@ public class Store
     /// <summary>How many steps of this task have been finished today.</summary>
     public int Done(int p, string task)
     {
-        lock (gate) { var d = Today; return Live(p).Count(e => e.K == "t" && e.I == task && e.Day == d); }
+        lock (gate) { var d = DayKey(p); return Live(p).Count(e => e.K == "t" && e.I == task && e.Day == d); }
+    }
+
+    /// <summary>
+    /// Today's date, plus "~round" once the person's day has been reset (round 1, 2, ...). Task steps are recorded
+    /// under this key, so after a reset every task starts over while the points already earned stay.
+    /// If both phones reset at once they pick the same round number, so they still agree. Caller holds the lock.
+    /// </summary>
+    string DayKey(int p)
+    {
+        var d = Today;
+        var round = Round(p, d);
+        return round == 0 ? d : $"{d}~{round}";
+    }
+
+    int Round(int p, string day) =>
+        db.Events.Where(e => e.P == p && e.K == "d" && e.Day == day).Select(e => e.S).DefaultIfEmpty(0).Max();
+
+    /// <summary>True if any task the person ticks off by hand has a step done today (i.e. a reset would change something).</summary>
+    public bool AnyDoneToday(int p)
+    {
+        lock (gate)
+        {
+            var d = DayKey(p);
+            var manual = Defs.Tasks[p].Where(t => !t.AutoDone).Select(t => t.Key).ToHashSet();
+            return Live(p).Any(e => e.K == "t" && e.Day == d && manual.Contains(e.I));
+        }
+    }
+
+    /// <summary>Makes all of today's tasks available again for this person. Points already earned are kept.</summary>
+    public void ResetDay(int p)
+    {
+        lock (gate)
+        {
+            var d = Today;
+            Add(p, "d", "day", Round(p, d) + 1, 0, d);
+            Save();
+        }
+        Changed?.Invoke();
     }
 
     // ---- writing ----
@@ -159,10 +198,11 @@ public class Store
         int gain;
         lock (gate)
         {
+            if (t.AutoDone) return 0; // awarded automatically, never by hand
             var k = Done(p, t.Key);
             if (k >= t.Steps.Length) return 0;
             gain = t.Steps[k];
-            Add(p, "t", t.Key, k, gain);
+            Add(p, "t", t.Key, k, gain, DayKey(p));
             Save();
         }
         Changed?.Invoke();
